@@ -1,0 +1,22 @@
+{
+"name": "Fullstack Flutter + Angular + Flask",
+"image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+"features": {
+"ghcr.io/devcontainers/features/node:1": {
+"version": "18"
+}
+},
+"customizations": {
+"vscode": {
+"extensions": [
+"Dart-Code.flutter",
+"Dart-Code.dart-code",
+"Angular.ng-template"
+]
+}
+},
+"postCreateCommand": "sudo apt-get update && sudo apt-get install -y git curlunzip xz-utils zip python3 python3-pip python-is-python3 && npm install -g @angular/cli && git clone https://github.com/flutter/flutter.git -b stable --depth 1 /home/vscode/flutter && echo 'export PATH=/home/vscode/flutter/bin:$PATH' >> ~/.bashrc",
+"remoteEnv": {
+"PATH": "${containerEnv:PATH}:/home/vscode/flutter/bin"
+}
+}
