@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from flask import Flask, jsonify, request, abort
 from flask_cors import CORS
 import os
@@ -206,3 +207,94 @@ def get_stats():
 # ─────────────────────────── Main ─────────────────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+=======
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from database_wrapper import DatabaseWrapper
+
+app = Flask(__name__)
+# Configurazione CORS più esplicita per supportare tutte le origini
+CORS(app, resources={
+    r"/.*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PATCH", "OPTIONS", "DELETE", "PUT"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": False
+    }
+})
+db = DatabaseWrapper()
+db.crea_tabelle_se_non_esistono()  # Crea le tabelle in automatico all'avvio!
+
+
+@app.route('/menu', methods=['GET'])
+def get_menu():
+    try:
+        return jsonify(db.get_menu())
+    except Exception as e:
+        return jsonify({'error': 'server error', 'detail': str(e)}), 500
+
+
+@app.route('/')
+def index():
+    return "<h3>Hamburgeria backend</h3><p>API disponibili: <a href='/menu'>/menu</a>, <a href='/orders'>/orders</a></p>"
+
+
+@app.route('/menu', methods=['POST'])
+def add_menu_item():
+    data = request.get_json() or {}
+    name = data.get('name') or data.get('nome')
+    category = data.get('category') or data.get('categoria')
+    price = data.get('price') or data.get('prezzo')
+    image = data.get('image') or data.get('immagine')
+    if not name or price is None:
+        return jsonify({'error': 'name and price required'}), 400
+    new_id = db.add_product(name, category or 'panini', price, image)
+    return jsonify({'id': new_id}), 201
+
+
+@app.route('/orders', methods=['GET'])
+def get_orders():
+    try:
+        return jsonify(db.get_orders())
+    except Exception as e:
+        return jsonify({'error': 'server error', 'detail': str(e)}), 500
+
+
+@app.route('/orders', methods=['POST'])
+def create_order():
+    data = request.get_json() or {}
+    items = data.get('items') or data.get('lista_prodotti')
+    total = data.get('total_price') or data.get('totale')
+    if items is None or total is None:
+        return jsonify({'error': 'items and total_price required'}), 400
+    try:
+        order_id = db.add_order(items, total)
+        return jsonify({'id': order_id}), 201
+    except Exception as e:
+        return jsonify({'error': 'server error', 'detail': str(e)}), 500
+
+
+@app.route('/orders/<int:order_id>', methods=['PATCH'])
+def patch_order(order_id):
+    data = request.get_json() or {}
+    status = data.get('status') or data.get('stato')
+    if not status:
+        return jsonify({'error': 'status required'}), 400
+    try:
+        db.update_order_status(order_id, status)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': 'server error', 'detail': str(e)}), 500
+
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({
+        'error': 'Not Found',
+        'available_endpoints': ['/menu (GET, POST)', '/orders (GET, POST)', '/orders/<id> (PATCH)']
+    }), 404
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
+>>>>>>> 690fc1a (inizio del progetto, parte ordini e aggiunta al menù)

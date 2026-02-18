@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import pymysql
 import pymysql.cursors
 from contextlib import contextmanager
@@ -365,3 +366,277 @@ class DatabaseWrapper:
                     WHERE DATE(creato_il) = CURDATE()
                 """)
                 return cur.fetchone()
+=======
+import os
+import json
+import pymysql
+from pymysql import err as pymysql_err
+import sqlite3
+import base64
+import tempfile
+import pathlib
+
+
+class DatabaseWrapper:
+    def __init__(self):
+        # Legge le credenziali da variabili d'ambiente per facilità di configurazione
+        host = os.getenv('DB_HOST', 'mysql-3f12020f-galvani5d.j.aivencloud.com')
+        user = os.getenv('DB_USER', 'avnadmin')
+        password = os.getenv('DB_PASSWORD', 'AVNS_idAGBvmY7bsHyDkUXBM')
+        database = os.getenv('DB_NAME', 'defaultdb')
+        port = int(os.getenv('DB_PORT', '13861'))
+
+        self.use_sqlite = False
+        self.connection = None
+
+        if host == 'IL_TUO_HOST_QUI' or not host:
+            print('[DatabaseWrapper] DB_HOST non configurato: uso fallback SQLite locale')
+            self._init_sqlite()
+            return
+
+        try:
+            # support SSL CA for Aiven if provided via env
+            ssl_ca_path = os.getenv('DB_SSL_CA_PATH')
+            ssl_ca_b64 = os.getenv('DB_SSL_CA_B64')
+            ssl_kwargs = None
+            if ssl_ca_b64 and not ssl_ca_path:
+                # scrive il certificato in un file temporaneo persistente nella cartella backend
+                ca_file = pathlib.Path(os.path.join(os.getcwd(), 'aiven-ca.pem'))
+                if not ca_file.exists():
+                    ca_file.write_bytes(base64.b64decode(ssl_ca_b64))
+                ssl_ca_path = str(ca_file)
+            if ssl_ca_path:
+                ssl_kwargs = {'ca': ssl_ca_path}
+
+            connect_args = dict(
+                host=host,
+                user=user,
+                password=password,
+                database=database,
+                port=port,
+                cursorclass=pymysql.cursors.DictCursor,
+                autocommit=False,
+                connect_timeout=5,
+            )
+            if ssl_kwargs:
+                connect_args['ssl'] = ssl_kwargs
+
+            self.connection = pymysql.connect(**connect_args)
+            print('[DatabaseWrapper] Connesso a MySQL:', host)
+        except Exception as e:
+            print('[DatabaseWrapper] Impossibile connettersi a MySQL:', e)
+            print('[DatabaseWrapper] Uso fallback SQLite locale')
+            self._init_sqlite()
+
+    def _init_sqlite(self):
+        self.use_sqlite = True
+        # file persistente nella workspace
+        db_path = os.path.join(os.getcwd(), 'backend_local.db')
+        self.connection = sqlite3.connect(db_path, check_same_thread=False)
+        self.connection.row_factory = sqlite3.Row
+
+    def crea_tabelle_se_non_esistono(self):
+        # Crea le tabelle appropriate per il DB in uso (MySQL o SQLite)
+        try:
+            if self.use_sqlite:
+                cur = self.connection.cursor()
+                cur.execute('''
+                    CREATE TABLE IF NOT EXISTS prodotti (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT,
+                        price REAL,
+                        category TEXT,
+                        image TEXT
+                    )
+                ''')
+                cur.execute('''
+                    CREATE TABLE IF NOT EXISTS ordini (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        items_json TEXT,
+                        total_price REAL,
+                        status TEXT DEFAULT 'nuovo'
+                    )
+                ''')
+                self.connection.commit()
+            else:
+                with self.connection.cursor() as cursor:
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS prodotti (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            name VARCHAR(100),
+                            price DECIMAL(10,2),
+                            category VARCHAR(50),
+                            image TEXT
+                        )
+                    """)
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS ordini (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            items_json TEXT,
+                            total_price DECIMAL(10,2),
+                            status VARCHAR(50) DEFAULT 'nuovo'
+                        )
+                    """)
+                self.connection.commit()
+        except Exception as e:
+            print('[DatabaseWrapper] Errore creando tabelle:', e)
+            # Se la creazione su MySQL fallisce, forziamo fallback a SQLite per poter lavorare in locale
+            if not self.use_sqlite:
+                print('[DatabaseWrapper] Forzo fallback a SQLite')
+                self._init_sqlite()
+                self.crea_tabelle_se_non_esistono()
+            else:
+                raise
+
+        # seed di esempio per testing locale se la tabella prodotti è vuota
+        try:
+            menu = self.get_menu()
+            if not menu:
+                sample = [
+                    ('Classic Burger', 'panini', 6.5, None),
+                    ('Cheese Burger', 'panini', 7.5, None),
+                    ('Coca-Cola', 'bevande', 2.0, None),
+                    ('Menu Completo', 'menu', 10.0, None),
+                ]
+                for name, category, price, image in sample:
+                    try:
+                        self.add_product(name, category, price, image)
+                    except Exception:
+                        pass
+        except Exception:
+            # non blocchiamo l'avvio se il seed fallisce
+            pass
+
+    # --- Menu / prodotti ---
+    def get_menu(self):
+        try:
+            if self.use_sqlite:
+                cur = self.connection.cursor()
+                cur.execute('SELECT * FROM prodotti ORDER BY id ASC')
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+            else:
+                with self.connection.cursor() as cursor:
+                    cursor.execute('SELECT * FROM prodotti ORDER BY id ASC')
+                    return cursor.fetchall()
+        except Exception as e:
+            msg = str(e).lower()
+            if 'doesn' in msg or 'does not exist' in msg or 'no such table' in msg:
+                print('[DatabaseWrapper] get_menu: tabella prodotti mancante, ricreo tabelle')
+                try:
+                    self.crea_tabelle_se_non_esistono()
+                    return self.get_menu()
+                except Exception:
+                    pass
+            raise
+
+    def add_product(self, name, category, price, image=None):
+        try:
+            if self.use_sqlite:
+                cur = self.connection.cursor()
+                cur.execute('INSERT INTO prodotti (name, price, category, image) VALUES (?, ?, ?, ?)', (name, price, category, image))
+                self.connection.commit()
+                return cur.lastrowid
+            else:
+                with self.connection.cursor() as cursor:
+                    cursor.execute('INSERT INTO prodotti (name, price, category, image) VALUES (%s, %s, %s, %s)', (name, price, category, image))
+                    self.connection.commit()
+                    return cursor.lastrowid
+        except Exception as e:
+            msg = str(e).lower()
+            if 'doesn' in msg or 'does not exist' in msg or 'no such table' in msg:
+                print('[DatabaseWrapper] add_product: tabella prodotti mancante, ricreo tabelle')
+                self.crea_tabelle_se_non_esistono()
+                return self.add_product(name, category, price, image)
+            raise
+
+    def update_product(self, product_id, name=None, category=None, price=None, image=None):
+        parts = []
+        params = []
+        if name is not None:
+            parts.append('name=?' if self.use_sqlite else 'name=%s'); params.append(name)
+        if category is not None:
+            parts.append('category=?' if self.use_sqlite else 'category=%s'); params.append(category)
+        if price is not None:
+            parts.append('price=?' if self.use_sqlite else 'price=%s'); params.append(price)
+        if image is not None:
+            parts.append('image=?' if self.use_sqlite else 'image=%s'); params.append(image)
+        if not parts:
+            return False
+        sql = 'UPDATE prodotti SET ' + ', '.join(parts) + (' WHERE id=?' if self.use_sqlite else ' WHERE id=%s')
+        params.append(product_id)
+        if self.use_sqlite:
+            cur = self.connection.cursor()
+            cur.execute(sql, tuple(params))
+            self.connection.commit()
+        else:
+            with self.connection.cursor() as cursor:
+                cursor.execute(sql, tuple(params))
+            self.connection.commit()
+        return True
+
+    def delete_product(self, product_id):
+        if self.use_sqlite:
+            cur = self.connection.cursor()
+            cur.execute('DELETE FROM prodotti WHERE id=?', (product_id,))
+            self.connection.commit()
+        else:
+            with self.connection.cursor() as cursor:
+                cursor.execute('DELETE FROM prodotti WHERE id=%s', (product_id,))
+            self.connection.commit()
+
+    # --- Ordini ---
+    def get_orders(self):
+        try:
+            if self.use_sqlite:
+                cur = self.connection.cursor()
+                cur.execute('SELECT * FROM ordini ORDER BY id DESC')
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+            else:
+                with self.connection.cursor() as cursor:
+                    cursor.execute('SELECT * FROM ordini ORDER BY id DESC')
+                    return cursor.fetchall()
+        except Exception as e:
+            msg = str(e).lower()
+            if 'doesn' in msg or 'does not exist' in msg or 'no such table' in msg:
+                print('[DatabaseWrapper] get_orders: tabella ordini mancante, ricreo tabelle')
+                try:
+                    self.crea_tabelle_se_non_esistono()
+                    return self.get_orders()
+                except Exception:
+                    pass
+            raise
+
+    def add_order(self, items, total_price):
+        items_json = json.dumps(items, ensure_ascii=False)
+        try:
+            if self.use_sqlite:
+                cur = self.connection.cursor()
+                cur.execute('INSERT INTO ordini (items_json, total_price, status) VALUES (?, ?, ?)', (items_json, total_price, 'nuovo'))
+                self.connection.commit()
+                return cur.lastrowid
+            else:
+                with self.connection.cursor() as cursor:
+                    cursor.execute('INSERT INTO ordini (items_json, total_price, status) VALUES (%s, %s, %s)', (items_json, total_price, 'nuovo'))
+                    self.connection.commit()
+                    return cursor.lastrowid
+        except Exception as e:
+            msg = str(e).lower()
+            if 'doesn' in msg or 'does not exist' in msg or 'no such table' in msg:
+                print('[DatabaseWrapper] add_order: tabella ordini mancante, ricreo tabelle')
+                self.crea_tabelle_se_non_esistono()
+                return self.add_order(items, total_price)
+            raise
+
+    def update_order_status(self, order_id, status):
+        if self.use_sqlite:
+            cur = self.connection.cursor()
+            cur.execute('UPDATE ordini SET status=? WHERE id=?', (status, order_id))
+            self.connection.commit()
+        else:
+            with self.connection.cursor() as cursor:
+                cursor.execute('UPDATE ordini SET status=%s WHERE id=%s', (status, order_id))
+            self.connection.commit()
+
+>>>>>>> 690fc1a (inizio del progetto, parte ordini e aggiunta al menù)

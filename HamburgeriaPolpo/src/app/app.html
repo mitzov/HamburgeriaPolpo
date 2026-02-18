@@ -1,0 +1,136 @@
+<div class="container" style="padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <header style="background: linear-gradient(135deg, #ff6b35 0%, #333 100%); color: white; padding: 1.5rem; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+    <h1 style="margin: 0; font-size: 2em;">🍔 Hamburgeria Staff Panel</h1>
+    <p style="margin: 5px 0 0 0; opacity: 0.9;">Gestione digitale ordini, menù e carrello rapido</p>
+    <small style="opacity: 0.7;">⏱ Auto-refresh ogni 2 secondi</small>
+  </header>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+    
+    <!-- SEZIONE ORDINI -->
+    <section style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+      <h2 style="border-bottom: 3px solid #ff6b35; padding-bottom: 10px; margin-top: 0;">📋 Ordini in Cucina</h2>
+      <div *ngIf="ordini.length === 0" style="color: #999; font-style: italic; padding: 20px 0; text-align: center;">
+        ✨ Nessun ordine. La cucina riposa! 😴
+      </div>
+      
+      <div *ngFor="let o of ordini" 
+           style="border-left: 4px solid #ff6b35; padding: 15px; margin-bottom: 15px; border-radius: 6px; background: #fafafa; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <strong style="font-size: 1.1em;">Ordine #{{o.id}}</strong>
+          <span [ngClass]="{'badge-nuovo': o.status === 'nuovo', 'badge-prep': o.status === 'in_preparazione', 'badge-pronto': o.status === 'pronto'}"
+                style="padding: 4px 10px; border-radius: 20px; font-size: 0.85em; font-weight: bold; text-transform: uppercase;">
+            {{o.status}}
+          </span>
+        </div>
+        <p style="margin: 10px 0; color: #666;"><strong>Prodotti:</strong> {{o.items_json}}</p>
+        <p style="margin: 5px 0; color: #333;"><strong>Totale:</strong> <span style="color: #ff6b35; font-size: 1.2em;">€{{o.total_price}}</span></p>
+        
+        <div style="margin-top: 12px; display: flex; gap: 8px;">
+          <button (click)="cambiaStato(o.id, 'in_preparazione')" 
+                  [disabled]="o.status === 'in_preparazione' || o.status === 'pronto'"
+                  style="flex: 1; background: #ffc107; color: #333; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+            🍳 Prepara
+          </button>
+          <button (click)="cambiaStato(o.id, 'pronto')" 
+                  [disabled]="o.status === 'pronto'"
+                  style="flex: 1; background: #28a745; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+            ✅ Pronto
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEZIONE CARRELLO RAPIDO -->
+    <section style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+      <h2 style="border-bottom: 3px solid #28a745; padding-bottom: 10px; margin-top: 0;">🛒 Carrello Rapido</h2>
+      
+      <div style="max-height: 300px; overflow-y: auto; margin-bottom: 15px;">
+        <div *ngIf="!hasItemsInCarrello()" style="color: #999; font-style: italic; padding: 20px 0; text-align: center;">
+          Carrello vuoto 🥗
+        </div>
+
+        <div *ngFor="let item of (ordineRapido | keyvalue)" 
+             style="border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; border-radius: 6px; background: #f9f9f9;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="flex: 1;">
+              <strong>{{item.value.name}}</strong><br>
+              <small style="color: #666;">€{{item.value.price}} x {{item.value.qty}}</small>
+            </div>
+            <div style="text-align: right;">
+              <strong style="color: #ff6b35;">€{{(item.value.price * item.value.qty).toFixed(2)}}</strong>
+            </div>
+          </div>
+          <button (click)="removeCarrello(item.value.id)" 
+                  style="width: 100%; margin-top: 8px; background: #dc3545; color: white; border: none; padding: 4px; border-radius: 3px; font-size: 0.9em;">
+            ❌ Rimuovi
+          </button>
+        </div>
+      </div>
+
+      <div *ngIf="hasItemsInCarrello()" style="background: #f0f0f0; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+          <strong>Subtotale:</strong>
+          <span>€{{getTotaleCarrello().toFixed(2)}}</span>
+        </div>
+        <button (click)="creatOrdineRapido()" 
+                style="width: 100%; background: #28a745; color: white; border: none; padding: 12px; border-radius: 4px; font-weight: bold; font-size: 1em; cursor: pointer;">
+          📤 Crea Ordine
+        </button>
+      </div>
+    </section>
+
+    <!-- SEZIONE MENÙ E GESTIONE -->
+    <section style="background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.05);">
+      <h2 style="border-bottom: 3px solid #0dcaf0; padding-bottom: 10px; margin-top: 0;">🔧 Menù e Prodotti</h2>
+      
+      <div style="background: #f9f9f9; padding: 15px; border-radius: 6px; border: 2px solid #0dcaf0; margin-bottom: 15px;">
+        <h3 style="margin-top: 0;">➕ Aggiungi Prodotto</h3>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <input [(ngModel)]="nuovoProdotto.name" placeholder="Nome prodotto" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+          <select [(ngModel)]="nuovoProdotto.category" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            <option value="panini">🍔 Panini</option>
+            <option value="bevande">🥤 Bevande</option>
+            <option value="menu">📦 Menu Completi</option>
+          </select>
+          <input [(ngModel)]="nuovoProdotto.price" type="number" step="0.5" placeholder="Prezzo €" style="padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+          <button (click)="aggiungi()" 
+                  style="background: #0dcaf0; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+            ✅ Salva Prodotto
+          </button>
+        </div>
+      </div>
+
+      <h3>📦 Prodotti Disponibili</h3>
+      <div style="max-height: 400px; overflow-y: auto;">
+        <div *ngFor="let p of prodotti" 
+             style="border: 1px solid #eee; padding: 12px; margin-bottom: 10px; border-radius: 6px; background: #f9f9f9; display: flex; justify-content: space-between; align-items: center;">
+          <div style="flex: 1;">
+            <strong style="display: block;">{{p.name}}</strong>
+            <small style="color: #666;">{{p.category}} • €{{p.price}}</small>
+          </div>
+          <button (click)="addAlCarrello(p)" 
+                  style="background: #28a745; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+            🛒 +
+          </button>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<style>
+  .badge-nuovo {
+    background: #dc3545;
+    color: white;
+  }
+  .badge-prep {
+    background: #ffc107;
+    color: #333;
+  }
+  .badge-pronto {
+    background: #28a745;
+    color: white;
+  }
+</style>
